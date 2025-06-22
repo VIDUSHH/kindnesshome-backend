@@ -27,7 +27,7 @@ def create_app():
     # OAuth Configuration
     GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', "222142306503-nin1nh3q36f4sak91b5doseko86jorjr.apps.googleusercontent.com")
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', "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")
-    GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', "https://19hninclmjvp.manus.space/api/oauth/google/callback")
+    GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', "https://kindnesshome-backend.onrender.com/api/oauth/google/callback")
     
     # User model
     class User(db.Model):

@@ -96,13 +96,10 @@ def google_callback():
         access_token = create_access_token(identity=user.id)
         refresh_token = create_refresh_token(identity=user.id)
         
-        # Return success response (in production, redirect to frontend)
-        return jsonify({
-            'message': 'Google login successful',
-            'user': user.to_dict(),
-            'access_token': access_token,
-            'refresh_token': refresh_token
-        })
+    # Redirect to frontend with tokens
+    frontend_url = os.getenv('FRONTEND_URL', 'https://kindnesshome.com' )
+    redirect_url = f"{frontend_url}?access_token={access_token}&refresh_token={refresh_token}"
+    return redirect(redirect_url)
         
     except Exception as e:
         logging.error(f"Error in Google callback: {str(e)}")

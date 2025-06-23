@@ -158,7 +158,7 @@ def create_app():
                     localStorage.setItem('refresh_token', '{refresh_token}');
                     localStorage.setItem('user', JSON.stringify({user.to_dict()}));
                     setTimeout(() => {{
-                        window.location.href = 'https://atqnnjst.manus.space';
+                        window.location.href = 'https://kindnesshome.com';
                     }}, 2000);
                 </script>
             </body>

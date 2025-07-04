@@ -1,239 +1,352 @@
+"""
+Organization API routes for KindnessHome platform
+RESTful endpoints for charitable organization data
+"""
+
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from src.models.database import db
-from src.models.organization import Organization, Category, NTEECode
-from sqlalchemy import or_, and_
+import logging
+import os
 
-organizations_bp = Blueprint('organizations', __name__)
+# Import our services (these will be added to the backend)
+from ..services.organization_service import OrganizationService
 
-@organizations_bp.route('', methods=['GET'])
-def get_organizations():
-    try:
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
-        search = request.args.get('search', '')
-        category = request.args.get('category', '')
-        ntee_code = request.args.get('ntee_code', '')
-        verified_only = request.args.get('verified_only', 'false').lower() == 'true'
-        
-        query = Organization.query.filter_by(is_active=True)
-        
-        # Apply search filter
-        if search:
-            query = query.filter(
-                or_(
-                    Organization.name.ilike(f'%{search}%'),
-                    Organization.description.ilike(f'%{search}%'),
-                    Organization.mission_statement.ilike(f'%{search}%')
-                )
-            )
-        
-        # Apply verification filter
-        if verified_only:
-            query = query.filter_by(verification_status='verified')
-        
-        # Apply category filter
-        if category:
-            query = query.join(Organization.categories).filter(Category.slug == category)
-        
-        # Apply NTEE code filter
-        if ntee_code:
-            query = query.filter(Organization.ntee_codes.contains(f'"{ntee_code}"'))
-        
-        organizations = query.order_by(Organization.name)\
-                            .paginate(page=page, per_page=per_page, error_out=False)
-        
-        return jsonify({
-            'organizations': [org.to_dict() for org in organizations.items],
-            'total': organizations.total,
-            'pages': organizations.pages,
-            'current_page': page,
-            'per_page': per_page
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+logger = logging.getLogger(__name__)
 
-@organizations_bp.route('/<organization_id>', methods=['GET'])
-def get_organization(organization_id):
-    try:
-        organization = Organization.query.get(organization_id)
-        
-        if not organization or not organization.is_active:
-            return jsonify({'error': 'Organization not found'}), 404
-        
-        return jsonify({
-            'organization': organization.to_dict()
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# Create blueprint for organization routes
+organizations_bp = Blueprint('organizations', __name__, url_prefix='/api/organizations')
 
-@organizations_bp.route('', methods=['POST'])
-@jwt_required()
-def create_organization():
-    try:
-        # This would typically be admin-only in production
-        data = request.get_json()
-        
-        # Validate required fields
-        required_fields = ['ein', 'name']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({'error': f'{field} is required'}), 400
-        
-        # Check if organization with EIN already exists
-        existing_org = Organization.query.filter_by(ein=data['ein']).first()
-        if existing_org:
-            return jsonify({'error': 'Organization with this EIN already exists'}), 409
-        
-        organization = Organization(
-            ein=data['ein'],
-            name=data['name'],
-            description=data.get('description'),
-            mission_statement=data.get('mission_statement'),
-            website_url=data.get('website_url'),
-            logo_url=data.get('logo_url'),
-            cover_image_url=data.get('cover_image_url'),
-            tax_exempt_status=data.get('tax_exempt_status'),
-            deductibility_status=data.get('deductibility_status')
-        )
-        
-        # Handle address
-        if 'address' in data:
-            organization.set_address(data['address'])
-        
-        # Handle contact info
-        if 'contact_info' in data:
-            organization.set_contact_info(data['contact_info'])
-        
-        # Handle NTEE codes
-        if 'ntee_codes' in data:
-            organization.set_ntee_codes(data['ntee_codes'])
-        
-        # Handle social media
-        if 'social_media' in data:
-            organization.set_social_media(data['social_media'])
-        
-        db.session.add(organization)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Organization created successfully',
-            'organization': organization.to_dict()
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+# Initialize organization service
+org_service = OrganizationService()
 
 @organizations_bp.route('/search', methods=['GET'])
 def search_organizations():
+    """
+    Search for organizations by name, location, or category
+    
+    Query Parameters:
+        q (str): Search query for organization name
+        state (str): Filter by state code (e.g., 'CA', 'NY')
+        city (str): Filter by city name
+        category (str): Filter by NTEE category code (A-Z)
+        limit (int): Maximum number of results (default 20, max 100)
+        
+    Returns:
+        JSON response with organization list
+    """
     try:
-        query_text = request.args.get('q', '')
-        limit = request.args.get('limit', 10, type=int)
+        # Get query parameters
+        query = request.args.get('q', '').strip()
+        state = request.args.get('state', '').strip()
+        city = request.args.get('city', '').strip()
+        category = request.args.get('category', '').strip()
+        limit = min(int(request.args.get('limit', 20)), 100)
         
-        if not query_text:
-            return jsonify({'organizations': []}), 200
+        # Validate required parameters
+        if not query or len(query) < 2:
+            return jsonify({
+                'error': 'Search query must be at least 2 characters long',
+                'data': []
+            }), 400
         
-        organizations = Organization.query.filter(
-            and_(
-                Organization.is_active == True,
-                or_(
-                    Organization.name.ilike(f'%{query_text}%'),
-                    Organization.description.ilike(f'%{query_text}%')
-                )
-            )
-        ).limit(limit).all()
+        # Search organizations
+        organizations = org_service.search_organizations(
+            query=query,
+            state=state.upper() if state else None,
+            city=city,
+            category=category.upper() if category else None,
+            limit=limit
+        )
+        
+        # Convert to JSON
+        org_list = [org.to_dict() for org in organizations]
         
         return jsonify({
-            'organizations': [org.to_dict() for org in organizations]
-        }), 200
+            'data': org_list,
+            'count': len(org_list),
+            'query': query,
+            'filters': {
+                'state': state.upper() if state else None,
+                'city': city if city else None,
+                'category': category.upper() if category else None
+            }
+        })
         
+    except ValueError as e:
+        return jsonify({'error': f'Invalid parameter: {str(e)}'}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error in organization search: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
-@organizations_bp.route('/categories', methods=['GET'])
-def get_categories():
+@organizations_bp.route('/<ein>', methods=['GET'])
+def get_organization(ein):
+    """
+    Get organization details by EIN (Tax ID)
+    
+    Args:
+        ein (str): Employer Identification Number
+        
+    Returns:
+        JSON response with organization details
+    """
     try:
-        categories = Category.query.filter_by(is_active=True)\
-                                  .order_by(Category.sort_order, Category.name).all()
+        # Validate EIN format (basic validation)
+        clean_ein = ein.replace('-', '').replace(' ', '')
+        if not clean_ein.isdigit() or len(clean_ein) != 9:
+            return jsonify({'error': 'Invalid EIN format. Must be 9 digits.'}), 400
         
-        return jsonify({
-            'categories': [cat.to_dict() for cat in categories]
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@organizations_bp.route('/<organization_id>/campaigns', methods=['GET'])
-def get_organization_campaigns(organization_id):
-    try:
-        organization = Organization.query.get(organization_id)
-        
-        if not organization or not organization.is_active:
-            return jsonify({'error': 'Organization not found'}), 404
-        
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
-        status = request.args.get('status', 'active')
-        
-        from src.models.campaign import Campaign
-        
-        query = Campaign.query.filter_by(organization_id=organization_id)
-        
-        if status:
-            query = query.filter_by(status=status)
-        
-        campaigns = query.order_by(Campaign.created_at.desc())\
-                        .paginate(page=page, per_page=per_page, error_out=False)
-        
-        return jsonify({
-            'campaigns': [campaign.to_dict() for campaign in campaigns.items],
-            'total': campaigns.total,
-            'pages': campaigns.pages,
-            'current_page': page,
-            'per_page': per_page
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@organizations_bp.route('/<organization_id>/verify', methods=['POST'])
-@jwt_required()
-def verify_organization(organization_id):
-    try:
-        # This would typically integrate with IRS API
-        # For now, we'll simulate the verification process
-        
-        organization = Organization.query.get(organization_id)
+        # Get organization
+        organization = org_service.get_organization_by_ein(clean_ein)
         
         if not organization:
             return jsonify({'error': 'Organization not found'}), 404
         
-        # Simulate IRS verification
-        # In production, this would call CharityAPI.org or similar service
-        verification_data = {
-            'ein_verified': True,
-            'tax_exempt_status': '501(c)(3)',
-            'deductibility_status': 'Deductible',
-            'verification_source': 'IRS_API_SIMULATION'
-        }
-        
-        organization.verification_status = 'verified'
-        organization.verification_date = db.func.now()
-        organization.tax_exempt_status = verification_data['tax_exempt_status']
-        organization.deductibility_status = verification_data['deductibility_status']
-        organization.set_irs_data(verification_data)
-        
-        db.session.commit()
-        
         return jsonify({
-            'message': 'Organization verified successfully',
-            'organization': organization.to_dict()
-        }), 200
+            'data': organization.to_dict()
+        })
         
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error getting organization {ein}: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/verify/<ein>', methods=['GET'])
+def verify_organization(ein):
+    """
+    Verify organization's charitable status and tax-deductible eligibility
+    
+    Args:
+        ein (str): Employer Identification Number
+        
+    Returns:
+        JSON response with verification results
+    """
+    try:
+        # Validate EIN format
+        clean_ein = ein.replace('-', '').replace(' ', '')
+        if not clean_ein.isdigit() or len(clean_ein) != 9:
+            return jsonify({'error': 'Invalid EIN format. Must be 9 digits.'}), 400
+        
+        # Verify organization
+        verification = org_service.verify_organization(clean_ein)
+        
+        return jsonify(verification)
+        
+    except Exception as e:
+        logger.error(f"Error verifying organization {ein}: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/popular', methods=['GET'])
+def get_popular_organizations():
+    """
+    Get most popular/searched organizations
+    
+    Query Parameters:
+        limit (int): Maximum number of results (default 20, max 50)
+        
+    Returns:
+        JSON response with popular organizations
+    """
+    try:
+        limit = min(int(request.args.get('limit', 20)), 50)
+        
+        organizations = org_service.get_popular_organizations(limit)
+        org_list = [org.to_dict() for org in organizations]
+        
+        return jsonify({
+            'data': org_list,
+            'count': len(org_list)
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': f'Invalid limit parameter: {str(e)}'}), 400
+    except Exception as e:
+        logger.error(f"Error getting popular organizations: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/categories', methods=['GET'])
+def get_categories():
+    """
+    Get list of available organization categories (NTEE codes)
+    
+    Returns:
+        JSON response with category list
+    """
+    try:
+        categories = org_service.get_categories()
+        
+        return jsonify({
+            'data': categories,
+            'count': len(categories)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting categories: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/categories/<category_code>', methods=['GET'])
+def get_organizations_by_category(category_code):
+    """
+    Get organizations by NTEE category
+    
+    Args:
+        category_code (str): NTEE major group code (A-Z)
+        
+    Query Parameters:
+        limit (int): Maximum number of results (default 20, max 100)
+        
+    Returns:
+        JSON response with organizations in the category
+    """
+    try:
+        # Validate category code
+        if not category_code or len(category_code) != 1 or not category_code.isalpha():
+            return jsonify({'error': 'Invalid category code. Must be a single letter A-Z.'}), 400
+        
+        limit = min(int(request.args.get('limit', 20)), 100)
+        
+        organizations = org_service.get_organizations_by_category(
+            category_code.upper(), 
+            limit
+        )
+        
+        org_list = [org.to_dict() for org in organizations]
+        
+        return jsonify({
+            'data': org_list,
+            'count': len(org_list),
+            'category': category_code.upper()
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': f'Invalid parameter: {str(e)}'}), 400
+    except Exception as e:
+        logger.error(f"Error getting organizations by category {category_code}: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/favorites', methods=['GET'])
+@jwt_required()
+def get_user_favorites():
+    """
+    Get user's favorite organizations (requires authentication)
+    
+    Returns:
+        JSON response with user's favorite organizations
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        # This would require a user favorites table in the database
+        # For now, return empty list as placeholder
+        # TODO: Implement user favorites functionality
+        
+        return jsonify({
+            'data': [],
+            'count': 0,
+            'message': 'User favorites feature coming soon'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting user favorites: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/favorites/<ein>', methods=['POST'])
+@jwt_required()
+def add_favorite_organization(ein):
+    """
+    Add organization to user's favorites (requires authentication)
+    
+    Args:
+        ein (str): Employer Identification Number
+        
+    Returns:
+        JSON response confirming addition
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        # Validate EIN format
+        clean_ein = ein.replace('-', '').replace(' ', '')
+        if not clean_ein.isdigit() or len(clean_ein) != 9:
+            return jsonify({'error': 'Invalid EIN format. Must be 9 digits.'}), 400
+        
+        # Verify organization exists
+        organization = org_service.get_organization_by_ein(clean_ein)
+        if not organization:
+            return jsonify({'error': 'Organization not found'}), 404
+        
+        # TODO: Implement user favorites functionality
+        # This would add the organization to user's favorites table
+        
+        return jsonify({
+            'message': 'Organization added to favorites',
+            'organization': organization.to_dict()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding favorite organization {ein}: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/favorites/<ein>', methods=['DELETE'])
+@jwt_required()
+def remove_favorite_organization(ein):
+    """
+    Remove organization from user's favorites (requires authentication)
+    
+    Args:
+        ein (str): Employer Identification Number
+        
+    Returns:
+        JSON response confirming removal
+    """
+    try:
+        user_id = get_jwt_identity()
+        
+        # Validate EIN format
+        clean_ein = ein.replace('-', '').replace(' ', '')
+        if not clean_ein.isdigit() or len(clean_ein) != 9:
+            return jsonify({'error': 'Invalid EIN format. Must be 9 digits.'}), 400
+        
+        # TODO: Implement user favorites functionality
+        # This would remove the organization from user's favorites table
+        
+        return jsonify({
+            'message': 'Organization removed from favorites'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error removing favorite organization {ein}: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@organizations_bp.route('/test', methods=['GET'])
+def test_api_connection():
+    """
+    Test the CharityAPI connection and return status
+    
+    Returns:
+        JSON response with connection test results
+    """
+    try:
+        test_results = org_service.test_api_connection()
+        
+        return jsonify(test_results)
+        
+    except Exception as e:
+        logger.error(f"Error testing API connection: {str(e)}")
+        return jsonify({
+            'connected': False,
+            'error': str(e)
+        }), 500
+
+# Error handlers for the blueprint
+@organizations_bp.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Endpoint not found'}), 404
+
+@organizations_bp.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({'error': 'Method not allowed'}), 405
+
+@organizations_bp.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
 

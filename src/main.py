@@ -149,9 +149,9 @@ def create_app():
             redirect_url = f"{frontend_url}?access_token={access_token}&refresh_token={refresh_token}"
             return redirect(redirect_url)
         
-            except Exception as e:
-                logging.error(f"Error in Google callback: {str(e)}")
-                return jsonify({'error': 'Google login failed'}), 500
+        except Exception as e:
+            logging.error(f"Error in Google callback: {str(e)}")
+            return jsonify({'error': 'Google login failed'}), 500
     
     # Simple routes for deployment testing
     @app.route('/')

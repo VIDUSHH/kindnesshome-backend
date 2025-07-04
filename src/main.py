@@ -144,40 +144,14 @@ def create_app():
             access_token = create_access_token(identity=user.id)
             refresh_token = create_refresh_token(identity=user.id)
             
-            # Return success response with redirect to frontend
-            return f"""
-            <html>
-            <head><title>Login Successful - KindnessHome</title></head>
-            <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h2>🎉 Login Successful!</h2>
-                <p>Welcome <strong>{user.first_name}</strong>! You have successfully logged in with Google.</p>
-                <p>Redirecting to KindnessHome...</p>
-                <script>
-                    // Store tokens in localStorage and redirect
-                    localStorage.setItem('access_token', '{access_token}');
-                    localStorage.setItem('refresh_token', '{refresh_token}');
-                    localStorage.setItem('user', JSON.stringify({user.to_dict()}));
-                    setTimeout(() => {{
-                        window.location.href = 'https://kindnesshome.com';
-                    }}, 2000);
-                </script>
-            </body>
-            </html>
-            """
-            
-        except Exception as e:
-            logging.error(f"Error in Google callback: {str(e)}")
-            return f"""
-            <html>
-            <head><title>Login Error - KindnessHome</title></head>
-            <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h2>❌ Login Failed</h2>
-                <p>Sorry, there was an error during Google login.</p>
-                <p>Error: {str(e)}</p>
-                <a href="https://atqnnjst.manus.space">Return to KindnessHome</a>
-            </body>
-            </html>
-            """
+        # Redirect to frontend with tokens
+            frontend_url = os.getenv('FRONTEND_URL', 'https://kindnesshome.com' )
+            redirect_url = f"{frontend_url}?access_token={access_token}&refresh_token={refresh_token}"
+            return redirect(redirect_url)
+        
+            except Exception as e:
+                logging.error(f"Error in Google callback: {str(e)}")
+                return jsonify({'error': 'Google login failed'}), 500
     
     # Simple routes for deployment testing
     @app.route('/')

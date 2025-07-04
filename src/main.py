@@ -3,6 +3,8 @@ from flask import Flask, jsonify, redirect, session, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token
+from src.routes.organizations import organizations_bp
+
 import requests
 import logging
 
@@ -23,6 +25,9 @@ def create_app():
     db.init_app(app)
     jwt.init_app(app)
     CORS(app)
+
+    # Register organization routes
+    app.register_blueprint(organizations_bp)  
     
     # OAuth Configuration
     GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', "222142306503-nin1nh3q36f4sak91b5doseko86jorjr.apps.googleusercontent.com")
@@ -160,35 +165,12 @@ def create_app():
             "message": "KindnessHome API is running!",
             "status": "success",
             "version": "1.0.0",
-            "oauth_ready": True
+            "oauth_ready": True,
+            "organizations_ready": True
         })
     
-    @app.route('/api/organizations')
-    def organizations():
-        return jsonify({
-            "organizations": [
-                {
-                    "id": 1,
-                    "name": "American Red Cross",
-                    "ein": "53-0196605",
-                    "category": "Emergency Relief",
-                    "rating": 4.8,
-                    "location": "Washington, DC",
-                    "verified": True
-                },
-                {
-                    "id": 2,
-                    "name": "Feeding America",
-                    "ein": "36-3673599", 
-                    "category": "Hunger Relief",
-                    "rating": 4.7,
-                    "location": "Chicago, IL",
-                    "verified": True
-                }
-            ],
-            "total": 2,
-            "status": "success"
-        })
+    
+
     
     @app.route('/api/health')
     def health():

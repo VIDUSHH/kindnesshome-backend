@@ -288,7 +288,7 @@ class OrganizationService:
         Returns:
             List of category dictionaries
         """
-        from src.services.charity_api_service import get_ntee_categories
+        from services.charity_api_service import get_ntee_categories
         
         categories = []
         ntee_map = get_ntee_categories()

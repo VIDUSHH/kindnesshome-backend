@@ -9,7 +9,7 @@ import logging
 import os
 
 # Import our services (these will be added to the backend)
-from ..services.organization_service import OrganizationService
+from src.services.organization_service import OrganizationService
 
 logger = logging.getLogger(__name__)
 

@@ -8,8 +8,8 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
 # Import our custom modules (these will be added to the backend)
-from .charity_api_service import CharityAPIService
-from ..models.organization import Organization, OrganizationCache
+from src.services.charity_api_service import CharityAPIService
+from src.models.organization import Organization, OrganizationCache
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +288,7 @@ class OrganizationService:
         Returns:
             List of category dictionaries
         """
-        from .charity_api_service import get_ntee_categories
+        from src.services.charity_api_service import get_ntee_categories
         
         categories = []
         ntee_map = get_ntee_categories()

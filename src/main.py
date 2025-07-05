@@ -3,7 +3,7 @@ from flask import Flask, jsonify, redirect, session, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token
-from src.routes.organizations import organizations_bp
+from routes.organizations import organizations_bp
 
 import requests
 import logging

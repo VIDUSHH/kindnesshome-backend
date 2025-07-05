@@ -8,8 +8,8 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
 # Import our custom modules (these will be added to the backend)
-from src.services.charity_api_service import CharityAPIService
-from src.models.organization import Organization, OrganizationCache
+from services.charity_api_service import CharityAPIService
+from models.organization import Organization, OrganizationCache
 
 logger = logging.getLogger(__name__)
 
